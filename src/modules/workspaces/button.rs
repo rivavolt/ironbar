@@ -78,6 +78,9 @@ impl Button {
         let icon_box = gtk::Box::new(Orientation::Horizontal, 2);
         icon_box.add_css_class("window-icons");
 
+        // Unparent label from button before re-parenting into container
+        self.button.set_child(None::<&gtk::Widget>);
+
         container.append(&self.label);
         container.append(&icon_box);
 

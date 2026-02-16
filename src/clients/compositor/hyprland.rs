@@ -364,6 +364,35 @@ impl Client {
                 });
             });
         }
+
+        {
+            let tx = tx.clone();
+            let lock = lock.clone();
+
+            event_listener.add_window_pinned_handler(move |event| {
+                let _lock = lock!(lock);
+                debug!("Window pin changed: {:?}", event);
+
+                let (class, workspace_id) = match Clients::get() {
+                    Ok(clients) => clients
+                        .iter()
+                        .find(|c| c.address == event.address)
+                        .map(|c| (c.class.clone(), c.workspace.id as i64))
+                        .unwrap_or_default(),
+                    Err(err) => {
+                        error!("Failed to get clients: {err}");
+                        (String::new(), -1)
+                    }
+                };
+
+                tx.send_expect(WorkspaceUpdate::WindowPinned {
+                    id: event.address.to_string(),
+                    class,
+                    workspace_id,
+                    pinned: event.pinned,
+                });
+            });
+        }
     }
 
     #[cfg(feature = "keyboard+hyprland")]
@@ -522,7 +551,7 @@ impl super::WorkspaceClient for Client {
                     .send_expect(WorkspaceUpdate::Init(workspaces));
 
                 if let Ok(clients) = Clients::get() {
-                    for client in clients.iter() {
+                    for client in clients.iter().filter(|c| !c.pinned) {
                         self.workspace
                             .tx
                             .send_expect(WorkspaceUpdate::WindowOpened {

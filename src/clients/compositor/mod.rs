@@ -234,6 +234,14 @@ pub enum WorkspaceUpdate {
         workspace_id: i64,
     },
 
+    /// A window's pinned state changed.
+    WindowPinned {
+        id: String,
+        class: String,
+        workspace_id: i64,
+        pinned: bool,
+    },
+
     /// An update was triggered by the compositor but this was not mapped by Ironbar.
     ///
     /// This is purely used for ergonomics within the compositor clients
