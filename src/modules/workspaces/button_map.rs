@@ -61,6 +61,17 @@ impl ButtonMap {
             }
         })
     }
+
+    /// Gets a mutable button by workspace ID, checking both the direct ID key
+    /// and falling back to a search by the button's cached workspace ID.
+    pub fn get_button_for_workspace_mut(&mut self, workspace_id: i64) -> Option<&mut Button> {
+        let id_key = Identifier::Id(workspace_id);
+        if self.map.contains_key(&id_key) {
+            self.map.get_mut(&id_key)
+        } else {
+            self.find_button_by_id_mut(workspace_id)
+        }
+    }
 }
 
 impl Deref for ButtonMap {

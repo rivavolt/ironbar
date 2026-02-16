@@ -7,7 +7,7 @@ use crate::channels::SyncSenderExt;
 use crate::{arc_mut, lock, spawn_blocking};
 use hyprland::Result;
 use hyprland::ctl::switch_xkb_layout;
-use hyprland::data::{Devices, Workspace as HWorkspace, Workspaces};
+use hyprland::data::{Clients, Devices, Workspace as HWorkspace, Workspaces};
 use hyprland::dispatch::{Dispatch, DispatchType, WorkspaceIdentifierWithSpecial};
 use hyprland::event_listener::EventListener;
 use hyprland::prelude::*;
@@ -262,7 +262,7 @@ impl Client {
                 let _lock = lock!(lock);
                 debug!("Received urgent state: {address:?}");
 
-                let clients = match hyprland::data::Clients::get() {
+                let clients = match Clients::get() {
                     Ok(clients) => clients,
                     Err(err) => {
                         error!("Failed to get clients: {err}");
@@ -280,6 +280,77 @@ impl Client {
                         });
                     },
                 );
+            });
+        }
+
+        {
+            let tx = tx.clone();
+            let lock = lock.clone();
+
+            event_listener.add_window_opened_handler(move |event| {
+                let _lock = lock!(lock);
+                debug!("Window opened: {:?}", event);
+
+                let workspace_id = match Workspaces::get() {
+                    Ok(workspaces) => workspaces
+                        .into_iter()
+                        .find(|w| w.name == event.workspace_name)
+                        .map(|w| w.id as i64)
+                        .unwrap_or(-1),
+                    Err(err) => {
+                        error!("Failed to get workspaces: {err}");
+                        -1
+                    }
+                };
+
+                tx.send_expect(WorkspaceUpdate::WindowOpened {
+                    id: event.window_address.to_string(),
+                    class: event.window_class,
+                    workspace_id,
+                });
+            });
+        }
+
+        {
+            let tx = tx.clone();
+            let lock = lock.clone();
+
+            event_listener.add_window_closed_handler(move |address| {
+                let _lock = lock!(lock);
+                debug!("Window closed: {:?}", address);
+
+                tx.send_expect(WorkspaceUpdate::WindowClosed {
+                    id: address.to_string(),
+                    workspace_id: -1,
+                });
+            });
+        }
+
+        {
+            let tx = tx.clone();
+            let lock = lock.clone();
+
+            event_listener.add_window_moved_handler(move |event| {
+                let _lock = lock!(lock);
+                debug!("Window moved: {:?}", event);
+
+                let class = match Clients::get() {
+                    Ok(clients) => clients
+                        .iter()
+                        .find(|c| c.address == event.window_address)
+                        .map(|c| c.class.clone())
+                        .unwrap_or_default(),
+                    Err(err) => {
+                        error!("Failed to get clients: {err}");
+                        String::new()
+                    }
+                };
+
+                tx.send_expect(WorkspaceUpdate::WindowMoved {
+                    id: event.window_address.to_string(),
+                    class,
+                    workspace_id: event.workspace_id as i64,
+                });
             });
         }
     }
@@ -432,6 +503,18 @@ impl super::WorkspaceClient for Client {
                 self.workspace
                     .tx
                     .send_expect(WorkspaceUpdate::Init(workspaces));
+
+                if let Ok(clients) = Clients::get() {
+                    for client in clients.iter() {
+                        self.workspace
+                            .tx
+                            .send_expect(WorkspaceUpdate::WindowOpened {
+                                id: client.address.to_string(),
+                                class: client.class.clone(),
+                                workspace_id: client.workspace.id as i64,
+                            });
+                    }
+                }
             }
             Err(e) => {
                 error!("Failed to get workspaces: {e:#}");

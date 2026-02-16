@@ -154,6 +154,12 @@ pub struct WorkspacesModule {
     #[serde(default)]
     sort: SortOrder,
 
+    /// Whether to show window icons in workspace buttons.
+    ///
+    /// **Default**: `false`
+    #[serde(default)]
+    show_window_icons: bool,
+
     /// The size to render icons at (image icons only).
     ///
     /// **Default**: `32`
@@ -192,6 +198,7 @@ impl Default for WorkspacesModule {
             hidden: vec![],
             all_monitors: false,
             sort: SortOrder::default(),
+            show_window_icons: false,
             icon_size: default::IconSize::Normal as i32,
             format: Format::default(),
             layout: LayoutConfig::default(),
@@ -369,6 +376,10 @@ impl Module<gtk::Box> for WorkspacesModule {
             // since it fires for every workspace subscriber
             let mut has_initialized = false;
 
+            // window state: workspace_id -> vec of (window_id, class)
+            let mut window_state: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+            let show_window_icons = self.show_window_icons;
+
             let add_workspace = {
                 let container = container.clone();
                 let item_context = item_context.clone();
@@ -537,6 +548,104 @@ impl Module<gtk::Box> for WorkspacesModule {
                             .or_else(|| button_map.find_button_by_id(id))
                         {
                             button.set_urgent(urgent);
+                        }
+                    }
+                    WorkspaceUpdate::WindowOpened {
+                        id: window_id,
+                        class,
+                        workspace_id,
+                    } if has_initialized && show_window_icons => {
+                        window_state
+                            .entry(workspace_id)
+                            .or_default()
+                            .push((window_id, class));
+
+                        let classes: Vec<String> = window_state
+                            .get(&workspace_id)
+                            .map(|windows| windows.iter().map(|(_, c)| c.clone()).collect())
+                            .unwrap_or_default();
+
+                        if let Some(button) =
+                            button_map.get_button_for_workspace_mut(workspace_id)
+                        {
+                            button.set_window_icons(&classes);
+                        }
+                    }
+                    WorkspaceUpdate::WindowClosed {
+                        id: window_id,
+                        workspace_id,
+                    } if has_initialized && show_window_icons => {
+                        if workspace_id == -1 {
+                            // Don't know which workspace; search all and collect update
+                            let mut update_ws: Option<(i64, Vec<String>)> = None;
+                            for (ws_id, windows) in window_state.iter_mut() {
+                                let before_len = windows.len();
+                                windows.retain(|(wid, _)| *wid != window_id);
+                                if windows.len() != before_len {
+                                    let classes: Vec<String> =
+                                        windows.iter().map(|(_, c)| c.clone()).collect();
+                                    update_ws = Some((*ws_id, classes));
+                                    break;
+                                }
+                            }
+                            if let Some((ws_id, classes)) = update_ws {
+                                if let Some(button) =
+                                    button_map.get_button_for_workspace_mut(ws_id)
+                                {
+                                    button.set_window_icons(&classes);
+                                }
+                            }
+                        } else if let Some(windows) = window_state.get_mut(&workspace_id) {
+                            windows.retain(|(wid, _)| *wid != window_id);
+                            let classes: Vec<String> =
+                                windows.iter().map(|(_, c)| c.clone()).collect();
+                            if let Some(button) =
+                                button_map.get_button_for_workspace_mut(workspace_id)
+                            {
+                                button.set_window_icons(&classes);
+                            }
+                        }
+                    }
+                    WorkspaceUpdate::WindowMoved {
+                        id: window_id,
+                        class,
+                        workspace_id,
+                    } if has_initialized && show_window_icons => {
+                        // Remove from old workspace and collect which one to update
+                        let mut old_update: Option<(i64, Vec<String>)> = None;
+                        for (ws_id, windows) in window_state.iter_mut() {
+                            let before_len = windows.len();
+                            windows.retain(|(wid, _)| *wid != window_id);
+                            if windows.len() != before_len {
+                                let classes: Vec<String> =
+                                    windows.iter().map(|(_, c)| c.clone()).collect();
+                                old_update = Some((*ws_id, classes));
+                                break;
+                            }
+                        }
+                        if let Some((ws_id, classes)) = old_update {
+                            if let Some(button) =
+                                button_map.get_button_for_workspace_mut(ws_id)
+                            {
+                                button.set_window_icons(&classes);
+                            }
+                        }
+
+                        // Add to new workspace
+                        window_state
+                            .entry(workspace_id)
+                            .or_default()
+                            .push((window_id, class));
+
+                        let classes: Vec<String> = window_state
+                            .get(&workspace_id)
+                            .map(|windows| windows.iter().map(|(_, c)| c.clone()).collect())
+                            .unwrap_or_default();
+
+                        if let Some(button) =
+                            button_map.get_button_for_workspace_mut(workspace_id)
+                        {
+                            button.set_window_icons(&classes);
                         }
                     }
                     WorkspaceUpdate::Unknown if has_initialized => {
