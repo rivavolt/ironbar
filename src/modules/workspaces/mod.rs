@@ -648,6 +648,51 @@ impl Module<gtk::Box> for WorkspacesModule {
                             button.set_window_icons(&classes);
                         }
                     }
+                    WorkspaceUpdate::WindowPinned {
+                        id: window_id,
+                        class,
+                        workspace_id,
+                        pinned,
+                    } if has_initialized && show_window_icons => {
+                        if pinned {
+                            // Remove pinned window from whichever workspace it was in
+                            let mut update_ws: Option<(i64, Vec<String>)> = None;
+                            for (ws_id, windows) in window_state.iter_mut() {
+                                let before_len = windows.len();
+                                windows.retain(|(wid, _)| *wid != window_id);
+                                if windows.len() != before_len {
+                                    let classes: Vec<String> =
+                                        windows.iter().map(|(_, c)| c.clone()).collect();
+                                    update_ws = Some((*ws_id, classes));
+                                    break;
+                                }
+                            }
+                            if let Some((ws_id, classes)) = update_ws {
+                                if let Some(button) =
+                                    button_map.get_button_for_workspace_mut(ws_id)
+                                {
+                                    button.set_window_icons(&classes);
+                                }
+                            }
+                        } else {
+                            // Unpinned: add back to its workspace
+                            window_state
+                                .entry(workspace_id)
+                                .or_default()
+                                .push((window_id, class));
+
+                            let classes: Vec<String> = window_state
+                                .get(&workspace_id)
+                                .map(|w| w.iter().map(|(_, c)| c.clone()).collect())
+                                .unwrap_or_default();
+
+                            if let Some(button) =
+                                button_map.get_button_for_workspace_mut(workspace_id)
+                            {
+                                button.set_window_icons(&classes);
+                            }
+                        }
+                    }
                     WorkspaceUpdate::Unknown if has_initialized => {
                         warn!("received unknown type workspace event");
                     }
