@@ -41,6 +41,7 @@ impl Button {
         button.set_widget_name(name);
         button.add_css_class("item");
         button.set_valign(gtk::Align::Center);
+        button.set_vexpand(false);
         label.set_valign(gtk::Align::Center);
         label.set_halign(gtk::Align::Center);
         label.set_size_request(22, 22);
