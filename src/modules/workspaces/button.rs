@@ -40,6 +40,7 @@ impl Button {
 
         button.set_widget_name(name);
         button.add_css_class("item");
+        label.set_valign(gtk::Align::Center);
 
         let tx = context.tx.clone();
 
