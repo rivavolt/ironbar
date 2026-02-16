@@ -302,6 +302,23 @@ impl Client {
                 let _lock = lock!(lock);
                 debug!("Window opened: {:?}", event);
 
+                // Skip pinned windows — they follow across workspaces
+                // and Hyprland re-fires openwindow for them on workspace switch
+                let is_pinned = Clients::get()
+                    .ok()
+                    .and_then(|clients| {
+                        clients
+                            .iter()
+                            .find(|c| c.address == event.window_address)
+                            .map(|c| c.pinned)
+                    })
+                    .unwrap_or(false);
+
+                if is_pinned {
+                    debug!("Skipping pinned window open: {} ({})", event.window_class, event.window_address);
+                    return;
+                }
+
                 let workspace_id = match Workspaces::get() {
                     Ok(workspaces) => workspaces
                         .into_iter()
@@ -345,17 +362,20 @@ impl Client {
                 let _lock = lock!(lock);
                 debug!("Window moved: {:?}", event);
 
-                let class = match Clients::get() {
-                    Ok(clients) => clients
+                let client_info = Clients::get().ok().and_then(|clients| {
+                    clients
                         .iter()
                         .find(|c| c.address == event.window_address)
-                        .map(|c| c.class.clone())
-                        .unwrap_or_default(),
-                    Err(err) => {
-                        error!("Failed to get clients: {err}");
-                        String::new()
-                    }
-                };
+                        .map(|c| (c.class.clone(), c.pinned))
+                });
+
+                let (class, is_pinned) = client_info.unwrap_or_default();
+
+                // Skip pinned windows — Hyprland fires movewindow for them on workspace switch
+                if is_pinned {
+                    debug!("Skipping pinned window move: {} ({})", class, event.window_address);
+                    return;
+                }
 
                 tx.send_expect(WorkspaceUpdate::WindowMoved {
                     id: event.window_address.to_string(),
@@ -551,7 +571,12 @@ impl super::WorkspaceClient for Client {
                     .send_expect(WorkspaceUpdate::Init(workspaces));
 
                 if let Ok(clients) = Clients::get() {
-                    for client in clients.iter().filter(|c| !c.pinned) {
+                    for client in clients.iter() {
+                        if client.pinned {
+                            debug!("Skipping pinned client: {} ({})", client.class, client.address);
+                            continue;
+                        }
+                        debug!("Sending WindowOpened for: {} ws={}", client.class, client.workspace.id);
                         self.workspace
                             .tx
                             .send_expect(WorkspaceUpdate::WindowOpened {

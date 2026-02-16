@@ -3,7 +3,7 @@ mod renderer;
 mod token;
 
 use crate::channels::{AsyncSenderExt, BroadcastReceiverExt};
-use crate::clients::sysinfo::TokenType;
+use crate::clients::sysinfo::{Prefix, TokenType};
 use crate::config::{CommonConfig, LayoutConfig, ModuleOrientation};
 use crate::gtk_helpers::IronbarLabelExt;
 use crate::modules::sysinfo::token::Part;
@@ -13,6 +13,7 @@ use color_eyre::Result;
 use gtk::Label;
 use gtk::prelude::*;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -42,6 +43,29 @@ pub struct SysInfoModule {
     /// **Default** : `horizontal`
     direction: Option<ModuleOrientation>,
 
+    /// State thresholds for CSS classes.
+    /// Map of class name to threshold value.
+    /// The highest threshold not exceeding the metric value determines the active class.
+    ///
+    /// **Default**: `{}`
+    #[serde(default)]
+    states: BTreeMap<String, f64>,
+
+    /// Which metric to evaluate for states.
+    /// Auto-detected from interval config if not specified.
+    /// Valid values: "cpu_percent", "memory_percent", etc.
+    ///
+    /// **Default**: auto-detect
+    #[serde(default)]
+    state_metric: Option<String>,
+
+    /// Format string for tooltip shown on hover.
+    /// Supports the same tokens as `format`.
+    ///
+    /// **Default**: none
+    #[serde(default)]
+    tooltip_format: Option<String>,
+
     // -- common --
     /// See [layout options](module-level-options#layout)
     #[serde(flatten)]
@@ -58,6 +82,9 @@ impl Default for SysInfoModule {
             format: vec![],
             interval: Interval::default(),
             direction: None,
+            states: BTreeMap::new(),
+            state_metric: None,
+            tooltip_format: None,
             layout: LayoutConfig::default(),
             common: Some(CommonConfig::default()),
         }
@@ -209,8 +236,47 @@ impl TokenType {
     }
 }
 
+/// Given sorted states and a value, return the matching state class name.
+fn resolve_state(states: &BTreeMap<String, f64>, value: f64) -> Option<String> {
+    let mut result = None;
+    for (name, &threshold) in states {
+        if value >= threshold {
+            result = Some(name.clone());
+        }
+    }
+    result
+}
+
+/// Get the metric value for states evaluation.
+fn get_state_value(
+    client: &clients::sysinfo::Client,
+    metric: &str,
+    refresh: RefreshType,
+) -> Option<f64> {
+    let is_relevant = match metric {
+        "cpu_percent" => refresh == RefreshType::Cpu,
+        "memory_percent" => refresh == RefreshType::Memory,
+        _ => false,
+    };
+    if !is_relevant {
+        return None;
+    }
+    match metric {
+        "cpu_percent" => {
+            // cpu_percent returns ValueSet (per-CPU); compute mean
+            use crate::clients::sysinfo::Function;
+            Some(client.cpu_percent().apply(&Function::Mean, Prefix::None))
+        }
+        "memory_percent" => Some(client.memory_percent().get(Prefix::None)),
+        _ => None,
+    }
+}
+
+/// Message type: (label_index, rendered_text, optional_state_class, optional_tooltip)
+type SysInfoUpdate = (usize, String, Option<String>, Option<String>);
+
 impl Module<gtk::Box> for SysInfoModule {
-    type SendMessage = (usize, String);
+    type SendMessage = SysInfoUpdate;
     type ReceiveMessage = ();
 
     module_impl!("sysinfo");
@@ -231,9 +297,18 @@ impl Module<gtk::Box> for SysInfoModule {
             .map(|format| parser::parse_input(format.as_str()))
             .collect::<Result<Vec<_>>>()?;
 
+        let tooltip_tokens = self
+            .tooltip_format
+            .as_ref()
+            .map(|fmt| parser::parse_input(fmt.as_str()))
+            .transpose()?;
+
         for (i, token_set) in format_tokens.iter().enumerate() {
             let rendered = Part::render_all(token_set, &client, interval);
-            context.tx.send_update_spawn((i, rendered));
+            let tooltip = tooltip_tokens
+                .as_ref()
+                .map(|tt| Part::render_all(tt, &client, interval));
+            context.tx.send_update_spawn((i, rendered, None, tooltip));
         }
 
         let (refresh_tx, mut refresh_rx) = mpsc::channel(16);
@@ -258,6 +333,17 @@ impl Module<gtk::Box> for SysInfoModule {
         spawn_refresh!(RefreshType::System, system);
 
         let tx = context.tx.clone();
+        let states = self.states.clone();
+
+        // Auto-detect state_metric from interval config if not specified
+        let state_metric = self.state_metric.clone().unwrap_or_else(|| {
+            if let Interval::Individual(ref intervals) = self.interval {
+                if intervals.cpu != 5 { return "cpu_percent".to_string(); }
+                if intervals.memory != 5 { return "memory_percent".to_string(); }
+            }
+            String::new()
+        });
+
         spawn(async move {
             while let Some(refresh) = refresh_rx.recv().await {
                 match refresh {
@@ -268,6 +354,22 @@ impl Module<gtk::Box> for SysInfoModule {
                     RefreshType::Network => client.refresh_network(),
                     RefreshType::System => client.refresh_load_average(),
                 }
+
+                let state_class = if !states.is_empty() && !state_metric.is_empty() {
+                    get_state_value(&client, &state_metric, refresh)
+                        .and_then(|v| resolve_state(&states, v))
+                } else {
+                    None
+                };
+
+                let has_state_update = state_class.is_some();
+                let tooltip = tooltip_tokens
+                    .as_ref()
+                    .map(|tt| Part::render_all(tt, &client, interval));
+
+                let has_tokens = format_tokens.iter().any(|ts| {
+                    ts.iter().any(|p| matches!(p, Part::Token(_)))
+                });
 
                 for (i, token_set) in format_tokens.iter().enumerate() {
                     let is_affected = token_set
@@ -281,9 +383,9 @@ impl Module<gtk::Box> for SysInfoModule {
                         })
                         .any(|t| t.token.is_affected_by(refresh));
 
-                    if is_affected {
+                    if is_affected || has_state_update || (!has_tokens && tooltip.is_some()) {
                         let rendered = Part::render_all(token_set, &client, interval);
-                        tx.send_update((i, rendered)).await;
+                        tx.send_update((i, rendered, state_class.clone(), tooltip.clone())).await;
                     }
                 }
             }
@@ -313,14 +415,33 @@ impl Module<gtk::Box> for SysInfoModule {
                 .build();
 
             label.add_css_class("item");
+            label.set_halign(gtk::Align::Center);
 
             container.append(&label);
             labels.push(label);
         }
 
+        let state_names: Vec<String> = self.states.keys().cloned().collect();
+
         context.subscribe().recv_glib((), move |(), data| {
-            let label = &labels[data.0];
-            label.set_label_escaped(&data.1);
+            let (idx, text, state_class, tooltip) = data;
+            let label = &labels[idx];
+            label.set_label_escaped(&text);
+
+            if let Some(ref tip) = tooltip {
+                label.set_tooltip_text(Some(tip));
+            }
+
+            // Update state CSS classes on the label
+            if let Some(ref class) = state_class {
+                for name in &state_names {
+                    if name == class {
+                        label.add_css_class(name);
+                    } else {
+                        label.remove_css_class(name);
+                    }
+                }
+            }
         });
 
         Ok(ModuleParts {
