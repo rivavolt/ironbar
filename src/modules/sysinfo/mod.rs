@@ -416,6 +416,7 @@ impl Module<gtk::Box> for SysInfoModule {
 
             label.add_css_class("item");
             label.set_halign(gtk::Align::Center);
+            label.set_valign(gtk::Align::Center);
 
             container.append(&label);
             labels.push(label);
