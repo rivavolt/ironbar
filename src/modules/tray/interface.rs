@@ -46,6 +46,8 @@ impl TrayMenu {
         let popover = PopoverMenu::builder().build(); // no `new` and we do not have a model yet
         let widget = Button::new();
         let content = GtkBox::new(Orientation::Horizontal, 0);
+        content.set_halign(gtk::Align::Center);
+        content.set_hexpand(true);
 
         let has_menu = item.menu.is_some();
 
