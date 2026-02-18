@@ -57,7 +57,7 @@ impl Button {
             label,
             icon_container: None,
             image_provider: context.image_provider.clone(),
-            icon_size: 14,
+            icon_size: context.icon_size,
             workspace_id: id,
             monitor: monitor.to_string(),
             open_state,
