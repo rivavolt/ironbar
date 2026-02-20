@@ -51,7 +51,7 @@ pub fn load_css(source: &CssSource) {
     gtk::StyleContext::add_provider_for_display(
         &crate::get_display(),
         &provider,
-        GTK_STYLE_PROVIDER_PRIORITY_USER as u32,
+        GTK_STYLE_PROVIDER_PRIORITY_USER as u32 + 200,
     );
 
     // install file watcher
