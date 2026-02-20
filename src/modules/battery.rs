@@ -203,15 +203,18 @@ impl Module<Button> for BatteryModule {
 
         let progress = match self.show_progress {
             true => {
+                let wrapper = gtk::Box::new(Orientation::Vertical, 0);
+                wrapper.set_valign(gtk::Align::Center);
+                wrapper.add_css_class("progress-wrapper");
                 let bar = gtk::Box::new(Orientation::Horizontal, 0);
                 bar.add_css_class("progress-bar");
-                bar.set_valign(gtk::Align::Center);
-                bar.set_size_request(40, 8);
+                bar.set_size_request(40, 2);
                 let fill = gtk::Box::new(Orientation::Horizontal, 0);
                 fill.add_css_class("progress-fill");
-                fill.set_size_request(32, 8);
+                fill.set_size_request(32, 2);
                 bar.append(&fill);
-                Some((bar, fill))
+                wrapper.append(&bar);
+                Some((wrapper, fill))
             }
             false => None,
         };
@@ -267,7 +270,7 @@ impl Module<Button> for BatteryModule {
                 let pct = state.percent / 100.0;
                 let total_width = 40;
                 let fill_width = (total_width as f64 * pct).round() as i32;
-                fill.set_size_request(fill_width.max(1), 8);
+                fill.set_size_request(fill_width.max(1), 2);
             }
         });
 
