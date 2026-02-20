@@ -103,6 +103,11 @@ pub struct BatteryModule {
     /// **Default**: `true`
     show_label: bool,
 
+    /// Whether to show a progress bar indicating battery level.
+    ///
+    /// **Default**: `false`
+    show_progress: bool,
+
     /// See [profiles](profiles).
     #[serde(flatten)]
     profiles: Profiles<ProfileState, BatteryProfile>,
@@ -119,6 +124,7 @@ impl Default for BatteryModule {
             layout: LayoutConfig::default(),
             show_icon: true,
             show_label: true,
+            show_progress: false,
             profiles: Profiles::default(),
             common: Some(CommonConfig::default()),
         }
@@ -195,6 +201,21 @@ impl Module<Button> for BatteryModule {
             None
         };
 
+        let progress = match self.show_progress {
+            true => {
+                let bar = gtk::Box::new(Orientation::Horizontal, 0);
+                bar.add_css_class("progress-bar");
+                bar.set_valign(gtk::Align::Center);
+                bar.set_size_request(40, 8);
+                let fill = gtk::Box::new(Orientation::Horizontal, 0);
+                fill.add_css_class("progress-fill");
+                fill.set_size_request(32, 8);
+                bar.append(&fill);
+                Some((bar, fill))
+            }
+            false => None,
+        };
+
         let container = gtk::Box::new(self.layout.orientation(info), 5);
         container.add_css_class("contents");
 
@@ -203,6 +224,9 @@ impl Module<Button> for BatteryModule {
 
         if let Some(i) = &icon {
             container.append(&**i);
+        }
+        if let Some((ref bar, _)) = progress {
+            container.append(bar);
         }
         if let Some(l) = &label {
             container.append(l);
@@ -237,6 +261,13 @@ impl Module<Button> for BatteryModule {
 
             if let Some(i) = &icon {
                 i.set_label(Some(&format!("icon:{}", properties.icon_name)));
+            }
+
+            if let Some((_, ref fill)) = progress {
+                let pct = state.percent / 100.0;
+                let total_width = 40;
+                let fill_width = (total_width as f64 * pct).round() as i32;
+                fill.set_size_request(fill_width.max(1), 8);
             }
         });
 
