@@ -25,7 +25,7 @@ struct TxRx<T> {
 }
 impl<T: Clone> TxRx<T> {
     fn new() -> Self {
-        let (tx, rx) = channel(16);
+        let (tx, rx) = channel(128);
         Self { tx, _rx: rx }
     }
 }
