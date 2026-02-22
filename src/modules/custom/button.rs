@@ -66,6 +66,7 @@ impl CustomWidget for ButtonWidget {
         } else if let Some(text) = self.label {
             let label = Label::new(None);
             label.set_use_markup(true);
+            label.set_xalign(0.0);
 
             button.set_child(Some(&label));
 
