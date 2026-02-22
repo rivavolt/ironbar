@@ -29,6 +29,7 @@ pub(crate) struct TrayMenu {
     tx: mpsc::Sender<UiEvent>,
     path: Option<String>,
     address: String,
+    item_id: String,
 
     pub title: Option<String>,
     pub icon_name: Option<String>,
@@ -213,12 +214,18 @@ impl TrayMenu {
             label_widget: None,
             tx,
             title: item.title,
+            item_id: item_name.clone(),
             icon_name: item.icon_name,
             icon_theme_path: item.icon_theme_path.map(PathBuf::from),
             icon_pixmap: item.icon_pixmap,
             path: None,
             address: address.to_owned(),
         }
+    }
+
+    /// Returns the SNI item ID (or address if empty).
+    pub fn id(&self) -> &str {
+        &self.item_id
     }
 
     /// Updates the label text, and shows it in favour of the image.

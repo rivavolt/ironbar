@@ -163,6 +163,14 @@ pub struct TrayModule {
     /// **Default**: `horizontal` for horizontal bars, `vertical` for vertical bars
     direction: Option<ModuleOrientation>,
 
+    /// Ordered list of SNI item IDs defining the display order.
+    /// Items matching IDs earlier in the list appear first (leftmost).
+    /// Unlisted items appear after all listed items in arrival order.
+    ///
+    /// **Default**: `[]` (arrival order)
+    #[serde(default)]
+    sort: Vec<String>,
+
     /// Click action handlers for tray icons
     #[serde(flatten)]
     click_handlers: TrayClickHandlers,
@@ -178,6 +186,7 @@ impl Default for TrayModule {
             prefer_theme_icons: true,
             icon_size: default::IconSize::Tiny as u32,
             direction: None,
+            sort: Vec::new(),
             click_handlers: TrayClickHandlers::default(),
             common: Some(CommonConfig::default()),
         }
@@ -294,6 +303,7 @@ impl Module<gtk::Box> for TrayModule {
 
             // listen for UI updates
             let click_handlers = self.click_handlers.clone();
+            let sort_order = self.sort.clone();
 
             context.subscribe().recv_glib((), move |(), update| {
                 on_update(
@@ -303,6 +313,7 @@ impl Module<gtk::Box> for TrayModule {
                     &icon_config,
                     &activated_channel,
                     &click_handlers,
+                    &sort_order,
                 );
             });
         };
@@ -380,6 +391,36 @@ fn load_icon_async(
 
 /// Handles UI updates as callback,
 /// getting the diff since the previous update and applying it to the menu.
+/// Reorder tray icons to match the configured sort order.
+/// Items whose widget_name matches an entry in `sort_order` appear first
+/// in the specified order; unlisted items trail in their current order.
+fn reorder_tray(container: &gtk::Box, sort_order: &[String]) {
+    if sort_order.is_empty() {
+        return;
+    }
+
+    let mut children: Vec<(usize, gtk::Widget)> = Vec::new();
+    let mut child = container.first_child();
+    while let Some(widget) = child {
+        let name = widget.widget_name().to_string();
+        let pos = sort_order
+            .iter()
+            .position(|s| s == &name)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        child = widget.next_sibling();
+        children.push((pos, widget));
+    }
+
+    children.sort_by_key(|(pos, _)| *pos);
+
+    for pair in children.windows(2) {
+        if let [(_, a), (_, b)] = pair {
+            container.reorder_child_after(b, Some(a));
+        }
+    }
+}
+
 fn on_update(
     update: Event,
     container: &gtk::Box,
@@ -387,6 +428,7 @@ fn on_update(
     icon_config: &IconConfig,
     activated_channel: &mpsc::Sender<UiEvent>,
     click_handlers: &TrayClickHandlers,
+    sort_order: &[String],
 ) {
     match update {
         Event::Add(address, item) => {
@@ -394,6 +436,9 @@ fn on_update(
 
             let mut menu_item =
                 TrayMenu::new(&address, *item, activated_channel.clone(), click_handlers);
+
+            let sni_id = menu_item.id().to_owned();
+            menu_item.widget.set_widget_name(&sni_id);
 
             let x: Option<&gtk::Widget> = None;
             container.insert_child_after(&menu_item.widget, x);
@@ -429,6 +474,8 @@ fn on_update(
             );
 
             menus.insert(address.into(), menu_item);
+
+            reorder_tray(container, sort_order);
         }
         Event::Update(address, update) => {
             debug!("Received tray update for '{address}'");
