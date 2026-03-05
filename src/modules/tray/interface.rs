@@ -312,12 +312,13 @@ impl TrayMenu {
         let action_group = SimpleActionGroup::new();
         let shortcut_controller = ShortcutController::new();
 
+        let mut radio_counter = 0usize;
         let model: MenuModel = self
-            .as_menu(&tray_menu.submenus, &action_group, &shortcut_controller)
+            .as_menu(&tray_menu.submenus, &action_group, &shortcut_controller, &mut radio_counter)
             .into();
 
-        self.popover.set_menu_model(Some(&model));
         self.widget.insert_action_group("menu", Some(&action_group));
+        self.popover.set_menu_model(Some(&model));
         self.widget.add_controller(shortcut_controller);
     }
 
@@ -375,7 +376,7 @@ impl TrayMenu {
 
     pub fn connect_radio_item(
         &self,
-        sub: &system_tray::menu::MenuItem,
+        _sub: &system_tray::menu::MenuItem,
         action_group: &SimpleActionGroup,
         radio_group: &str,
         value: &str,
@@ -383,19 +384,24 @@ impl TrayMenu {
     ) -> String {
         let action_name = format!("action_radio_{radio_group}");
         let tx = self.tx.clone();
-        let id = sub.id;
 
+        let initial = if selected { value } else { "" };
         let action =
-            SimpleAction::new_stateful(&action_name, Some(VariantTy::STRING), &value.to_variant());
-
-        if selected {
-            action.set_state(&value.to_variant());
-        }
+            SimpleAction::new_stateful(&action_name, Some(VariantTy::STRING), &initial.to_variant());
 
         let address = self.address.clone();
 
         if let Some(path) = self.path.clone() {
-            action.connect_change_state(move |_, _| activate(&tx, &address, &path, id));
+            action.connect_change_state(move |action, state| {
+                if let Some(state) = state {
+                    action.set_state(state);
+                    if let Some(target) = state.get::<String>() {
+                        if let Ok(id) = target.parse::<i32>() {
+                            activate(&tx, &address, &path, id);
+                        }
+                    }
+                }
+            });
         }
 
         action_group.add_action(&action);
@@ -429,17 +435,13 @@ impl TrayMenu {
         items: &[system_tray::menu::MenuItem],
         action_group: &SimpleActionGroup,
         shortcut_controller: &ShortcutController,
+        radio_counter: &mut usize,
     ) -> Menu {
         use gtk::gio::{MenuItem, MenuModel};
         use system_tray::menu::{MenuType, ToggleType};
         let mut section_container: Option<Menu> = None;
 
-        // As current implementation it identifies radio groups based on the
-        // item of type radio coming one after the other,
-        // if there is a gap than a new radio group is started,
-        // for handling multiple radio groups it use a sequential one of each group used as key for the action
-        let mut radio_group_sequential = 0;
-        let mut radio_group = None;
+        let mut radio_group: Option<String> = None;
         let mut model = Menu::new();
 
         for sub in items {
@@ -457,7 +459,7 @@ impl TrayMenu {
                     let item = if sub.children_display == Some("submenu".to_owned()) {
                         radio_group = None;
                         let submenu: MenuModel = self
-                            .as_menu(&sub.submenu, action_group, shortcut_controller)
+                            .as_menu(&sub.submenu, action_group, shortcut_controller, radio_counter)
                             .into();
 
                         MenuItem::new_submenu(label, &submenu)
@@ -465,26 +467,31 @@ impl TrayMenu {
                         let action = if sub.enabled {
                             match sub.toggle_type {
                                 ToggleType::Radio => {
-                                    let value = match sub.toggle_state {
-                                        ToggleState::On => true,
-                                        ToggleState::Off | ToggleState::Indeterminate => false,
-                                    };
+                                    let selected = matches!(sub.toggle_state, ToggleState::On);
 
                                     let target = format!("{}", sub.id);
 
                                     let rg = if let Some(rg) = radio_group {
+                                        if selected {
+                                            let action_name = rg.strip_prefix("menu.").unwrap_or(&rg);
+                                            if let Some(action) = action_group.lookup_action(action_name) {
+                                                if let Some(sa) = action.downcast_ref::<SimpleAction>() {
+                                                    sa.set_state(&target.to_variant());
+                                                }
+                                            }
+                                        }
                                         rg
                                     } else {
-                                        radio_group_sequential += 1;
+                                        *radio_counter += 1;
 
-                                        let id = radio_group_sequential.to_string();
+                                        let id = radio_counter.to_string();
 
                                         self.connect_radio_item(
                                             sub,
                                             action_group,
                                             &id,
                                             &target,
-                                            value,
+                                            selected,
                                         )
                                     };
                                     debug!("radio item {label:?}");
