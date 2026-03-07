@@ -11,9 +11,10 @@ use hyprland::data::{Clients, Devices, Workspace as HWorkspace, Workspaces};
 use hyprland::dispatch::{Dispatch, DispatchType, WorkspaceIdentifierWithSpecial};
 use hyprland::event_listener::EventListener;
 use hyprland::prelude::*;
-use hyprland::shared::{HyprDataVec, WorkspaceType};
+use hyprland::shared::{Address, HyprDataVec, WorkspaceType};
 #[cfg(feature = "workspaces+hyprland")]
 use serde::Deserialize;
+use std::collections::HashSet;
 #[cfg(feature = "workspaces+hyprland")]
 use std::io::{Read, Write};
 #[cfg(feature = "workspaces+hyprland")]
@@ -294,16 +295,37 @@ impl Client {
             });
         }
 
+        // Track pinned windows locally to avoid IPC race conditions.
+        // Hyprland fires movewindow/openwindow for pinned windows on workspace switch;
+        // we must skip those, but Clients::get() IPC can fail under load,
+        // causing pinned windows to leak back into window_state.
+        let pinned_windows: HashSet<Address> = Clients::get()
+            .map(|clients| {
+                clients
+                    .iter()
+                    .filter(|c| c.pinned)
+                    .map(|c| c.address.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let pinned_windows = arc_mut!(pinned_windows);
+
         {
             let tx = tx.clone();
             let lock = lock.clone();
+            let pinned_windows = pinned_windows.clone();
 
             event_listener.add_window_opened_handler(move |event| {
                 let _lock = lock!(lock);
                 debug!("Window opened: {:?}", event);
 
-                // Skip pinned windows — they follow across workspaces
-                // and Hyprland re-fires openwindow for them on workspace switch
+                if lock!(pinned_windows).contains(&event.window_address) {
+                    debug!("Skipping pinned window open: {} ({})", event.window_class, event.window_address);
+                    return;
+                }
+
+                // Check actual pinned state via IPC as fallback for missed pin events
+                // (hyprland-rs can lose events at 4096-byte buffer boundaries)
                 let is_pinned = Clients::get()
                     .ok()
                     .and_then(|clients| {
@@ -315,7 +337,8 @@ impl Client {
                     .unwrap_or(false);
 
                 if is_pinned {
-                    debug!("Skipping pinned window open: {} ({})", event.window_class, event.window_address);
+                    debug!("Window opened but already pinned (missed pin event): {} ({})", event.window_class, event.window_address);
+                    lock!(pinned_windows).insert(event.window_address);
                     return;
                 }
 
@@ -342,10 +365,14 @@ impl Client {
         {
             let tx = tx.clone();
             let lock = lock.clone();
+            let pinned_windows = pinned_windows.clone();
 
             event_listener.add_window_closed_handler(move |address| {
                 let _lock = lock!(lock);
                 debug!("Window closed: {:?}", address);
+
+                // Clean up pinned tracking if a pinned window is closed
+                lock!(pinned_windows).remove(&address);
 
                 tx.send_expect(WorkspaceUpdate::WindowClosed {
                     id: address.to_string(),
@@ -357,10 +384,16 @@ impl Client {
         {
             let tx = tx.clone();
             let lock = lock.clone();
+            let pinned_windows = pinned_windows.clone();
 
             event_listener.add_window_moved_handler(move |event| {
                 let _lock = lock!(lock);
                 debug!("Window moved: {:?}", event);
+
+                if lock!(pinned_windows).contains(&event.window_address) {
+                    debug!("Skipping pinned window move: {} ({})", event.window_address, event.workspace_id);
+                    return;
+                }
 
                 let client_info = Clients::get().ok().and_then(|clients| {
                     clients
@@ -371,9 +404,17 @@ impl Client {
 
                 let (class, is_pinned) = client_info.unwrap_or_default();
 
-                // Skip pinned windows — Hyprland fires movewindow for them on workspace switch
+                // Detect missed pin events (hyprland-rs buffer boundary issue)
                 if is_pinned {
-                    debug!("Skipping pinned window move: {} ({})", class, event.window_address);
+                    debug!("Window moved but is pinned (missed pin event): {} ({})", event.window_address, event.workspace_id);
+                    let id = event.window_address.to_string();
+                    lock!(pinned_windows).insert(event.window_address);
+                    tx.send_expect(WorkspaceUpdate::WindowPinned {
+                        id,
+                        class,
+                        workspace_id: event.workspace_id as i64,
+                        pinned: true,
+                    });
                     return;
                 }
 
@@ -388,6 +429,7 @@ impl Client {
         {
             let tx = tx.clone();
             let lock = lock.clone();
+            let pinned_windows = pinned_windows.clone();
 
             event_listener.add_window_pinned_handler(move |event| {
                 let _lock = lock!(lock);
@@ -405,11 +447,61 @@ impl Client {
                     }
                 };
 
+                if event.pinned {
+                    lock!(pinned_windows).insert(event.address.clone());
+                } else {
+                    lock!(pinned_windows).remove(&event.address);
+                }
+
                 tx.send_expect(WorkspaceUpdate::WindowPinned {
                     id: event.address.to_string(),
                     class,
                     workspace_id,
                     pinned: event.pinned,
+                });
+            });
+        }
+
+        // Handle implicit unpins: when a pinned window becomes tiled,
+        // Hyprland silently unpins it without firing a pin event.
+        {
+            let tx = tx.clone();
+            let lock = lock.clone();
+
+            event_listener.add_float_state_changed_handler(move |event| {
+                let _lock = lock!(lock);
+
+                // hyprland-rs 0.4.0-beta.3 inverts the flag: "0" maps to floating=true
+                let became_tiled = event.floating;
+
+                if !became_tiled {
+                    return;
+                }
+
+                let was_pinned = lock!(pinned_windows).remove(&event.address);
+                if !was_pinned {
+                    return;
+                }
+
+                debug!("Pinned window became tiled (implicit unpin): {:?}", event.address);
+
+                let (class, workspace_id) = match Clients::get() {
+                    Ok(clients) => clients
+                        .iter()
+                        .find(|c| c.address == event.address)
+                        .map(|c| (c.class.clone(), c.workspace.id as i64))
+                        .unwrap_or_default(),
+                    Err(err) => {
+                        error!("Failed to get clients: {err}");
+                        (String::new(), -1)
+                    }
+                };
+
+                tx.send_expect(WorkspaceUpdate::WindowPinned {
+                    id: event.address.to_string(),
+                    class,
+                    workspace_id,
+                    pinned: false,
                 });
             });
         }
