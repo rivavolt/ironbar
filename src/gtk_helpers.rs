@@ -6,8 +6,8 @@ use gtk::glib;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{
-    EventControllerMotion, EventSequenceState, GestureClick, Label, ScrolledWindow, Snapshot,
-    Widget,
+    EventControllerMotion, EventSequenceState, GestureClick, Label, PropagationPhase,
+    ScrolledWindow, Snapshot, Widget,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -78,6 +78,13 @@ impl<W: IsA<Widget>> IronbarGtkExt for W {
             controller.set_button(button as u32);
         }
 
+        // Run in the capture phase so the press is registered and the sequence
+        // claimed before any descendant gesture (or the widget's own built-in
+        // `GtkButton` gesture) can interpret it. `GtkGestureClick` reacts to
+        // both pointer and touch input, but pointer-emulation from touch is not
+        // guaranteed, so handling the press directly is what makes touch work.
+        controller.set_propagation_phase(PropagationPhase::Capture);
+
         let id = controller.connect_pressed(move |gesture, _, _, _| {
             gesture.set_state(EventSequenceState::Claimed);
             f();
@@ -102,6 +109,9 @@ impl<W: IsA<Widget>> IronbarGtkExt for W {
         if button != MouseButton::Any {
             controller.set_button(button as u32);
         }
+
+        // Capture phase: see `connect_pressed` - this is required for touch.
+        controller.set_propagation_phase(PropagationPhase::Capture);
 
         // If no double-click handler provided, behave like regular connect_pressed
         let Some(on_double) = on_double else {

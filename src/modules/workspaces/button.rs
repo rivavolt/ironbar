@@ -7,7 +7,7 @@ use crate::modules::workspaces::WorkspaceItemContext;
 use glib::signal::SignalHandlerId;
 use gtk::prelude::*;
 use gtk::Button as GtkButton;
-use gtk::Orientation;
+use gtk::{EventSequenceState, GestureClick, Orientation, PropagationPhase};
 use tokio::sync::mpsc;
 
 #[derive(Debug)]
@@ -18,8 +18,22 @@ pub struct Button {
     image_provider: image::Provider,
     icon_size: i32,
     workspace_id: i64,
+    /// Click gesture driving workspace focus.
+    ///
+    /// A capture-phase, press-based `GestureClick` is used rather than
+    /// `GtkButton::clicked` (a release-based signal) so that taps register on
+    /// touchscreens, where the gesture's release is not reliably delivered.
+    click: GestureClick,
     conn_id: Option<SignalHandlerId>,
     tx: mpsc::Sender<i64>,
+}
+
+/// Attaches a capture-phase press handler to `gesture` that focuses workspace `id`.
+fn connect_focus(gesture: &GestureClick, tx: mpsc::Sender<i64>, id: i64) -> SignalHandlerId {
+    gesture.connect_pressed(move |gesture, _, _, _| {
+        gesture.set_state(EventSequenceState::Claimed);
+        tx.send_spawn(id);
+    })
 }
 
 impl Button {
@@ -43,11 +57,10 @@ impl Button {
         label.set_valign(gtk::Align::Center);
         label.set_halign(gtk::Align::Center);
 
-        let tx = context.tx.clone();
-
-        let conn_id = button.connect_clicked(move |_item| {
-            tx.send_spawn(id);
-        });
+        let click = GestureClick::new();
+        click.set_propagation_phase(PropagationPhase::Capture);
+        let conn_id = connect_focus(&click, context.tx.clone(), id);
+        button.add_controller(click.clone());
 
         let btn = Self {
             button,
@@ -56,6 +69,7 @@ impl Button {
             image_provider: context.image_provider.clone(),
             icon_size: context.icon_size,
             workspace_id: id,
+            click,
             conn_id: Some(conn_id),
             tx: context.tx.clone(),
         };
@@ -149,12 +163,8 @@ impl Button {
     pub fn set_workspace_id(&mut self, id: i64) {
         self.workspace_id = id;
         if let Some(conn_id) = self.conn_id.take() {
-            self.button.disconnect(conn_id);
+            self.click.disconnect(conn_id);
         }
-        let tx = self.tx.clone();
-        let conn_id = self.button.connect_clicked(move |_item| {
-            tx.send_spawn(id);
-        });
-        self.conn_id = Some(conn_id);
+        self.conn_id = Some(connect_focus(&self.click, self.tx.clone(), id));
     }
 }
