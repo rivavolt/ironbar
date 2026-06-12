@@ -13,7 +13,7 @@ jobs:
     outputs:
       latest_release_tag: ${{ steps.latest-release.outputs.LATEST_RELEASE_TAG }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Extract the latest release
         id: latest-release
         run: echo "LATEST_RELEASE_TAG=$(gh release ls --json isLatest,tagName -q '.[] | select(.isLatest == true) | .tagName')" >> $GITHUB_OUTPUT
@@ -35,7 +35,7 @@ jobs:
           - { image: ubuntu-24.04-arm, name: arm64 }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.get_last_release.outputs.latest_release_tag }}
 

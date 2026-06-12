@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     name: 'Formatting'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check formatting
         run: cargo fmt --check
@@ -36,7 +36,7 @@ jobs:
     container: ghcr.io/jakestanger/ironbar-build:master
     name: 'Clippy (Base features)'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: Swatinem/rust-cache@v2
         name: Cache dependencies
@@ -53,7 +53,7 @@ jobs:
     container: ghcr.io/jakestanger/ironbar-build:master
     name: 'Clippy (All features)'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: Swatinem/rust-cache@v2
         name: Cache dependencies
@@ -68,7 +68,7 @@ jobs:
     container: ghcr.io/jakestanger/ironbar-build:master
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: Swatinem/rust-cache@v2
         name: Cache dependencies
@@ -131,7 +131,7 @@ jobs:
           - extras
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: Swatinem/rust-cache@v2
         name: Cache dependencies
