@@ -17,6 +17,7 @@ env:
 jobs:
   publish-schema:
     name: 'Publish Schema'
+    if: github.repository == 'JakeStanger/ironbar'
     runs-on: ubuntu-latest
     container: ghcr.io/jakestanger/ironbar-build:master
 
