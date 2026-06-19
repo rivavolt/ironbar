@@ -71,23 +71,29 @@ impl Client {
         let bindmode_tx = self.bindmode.tx.clone();
 
         spawn_blocking(move || {
-            let mut event_listener = EventListener::new();
+            // `start_listener()` blocks until Hyprland's event socket closes — a compositor restart, `hyprctl reload`, or the connection being dropped while the session is idle (DPMS off / screensaver / lock all cycle it). Without a surrounding loop the blocking thread returns on the first such drop and the workspaces, keyboard-layout and bindmode widgets silently freeze at their last state until ironbar is manually restarted — exactly the "workspaces stop updating after a while" symptom. Rebuild the listener from scratch each pass (re-reading the active workspace and re-registering every handler) and back off a second between attempts so a genuinely-gone compositor can't spin the CPU.
+            loop {
+                let mut event_listener = EventListener::new();
 
-            // we need a lock to ensure events don't run at the same time
-            let lock = arc_mut!(());
+                // we need a lock to ensure events don't run at the same time
+                let lock = arc_mut!(());
 
-            // cache the active workspace since Hyprland doesn't give us the prev active
-            #[cfg(feature = "workspaces+hyprland")]
-            Self::listen_workspace_events(&workspace_tx, &mut event_listener, &lock);
+                // cache the active workspace since Hyprland doesn't give us the prev active
+                #[cfg(feature = "workspaces+hyprland")]
+                Self::listen_workspace_events(&workspace_tx, &mut event_listener, &lock);
 
-            #[cfg(feature = "keyboard+hyprland")]
-            Self::listen_keyboard_events(&keyboard_layout_tx, &mut event_listener, &lock);
+                #[cfg(feature = "keyboard+hyprland")]
+                Self::listen_keyboard_events(&keyboard_layout_tx, &mut event_listener, &lock);
 
-            #[cfg(feature = "bindmode+hyprland")]
-            Self::listen_bindmode_events(&bindmode_tx, &mut event_listener, &lock);
+                #[cfg(feature = "bindmode+hyprland")]
+                Self::listen_bindmode_events(&bindmode_tx, &mut event_listener, &lock);
 
-            if let Err(err) = event_listener.start_listener() {
-                error!("Failed to start listener: {err:#}");
+                match event_listener.start_listener() {
+                    Ok(()) => warn!("Hyprland event listener exited (socket closed); reconnecting in 1s"),
+                    Err(err) => error!("Hyprland event listener failed: {err:#}; reconnecting in 1s"),
+                }
+
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         });
     }
