@@ -8,7 +8,8 @@ use crate::modules::{ModuleUpdateEvent, PopupButton};
 use crate::{image, read_lock};
 use gtk::prelude::*;
 use gtk::{
-    Align, Button, ContentFit, EventControllerMotion, Justification, Label, Orientation, Picture,
+    Align, Button, ContentFit, EventControllerMotion, Justification, Label, Orientation, Overlay,
+    Picture,
 };
 use indexmap::IndexMap;
 use std::ops::Deref;
@@ -139,6 +140,7 @@ pub struct ItemButton {
     pub button: ImageTextButton,
     pub persistent: bool,
     pub show_names: bool,
+    pub show_count: bool,
     pub menu_state: Rc<RwLock<MenuState>>,
 }
 
@@ -146,6 +148,7 @@ pub struct ItemButton {
 pub struct AppearanceOptions {
     pub show_names: bool,
     pub show_icons: bool,
+    pub show_count: bool,
     pub icon_size: i32,
     pub truncate: TruncateMode,
     pub orientation: Orientation,
@@ -196,9 +199,11 @@ impl ItemButton {
             button.add_css_class("focused");
         }
 
-        let menu_state = Rc::new(RwLock::new(MenuState {
-            num_windows: item.windows.len(),
-        }));
+        let num_windows = item.windows.len();
+        button.count.set_label(&num_windows.to_string());
+        button.count.set_visible(appearance.show_count && num_windows > 1);
+
+        let menu_state = Rc::new(RwLock::new(MenuState { num_windows }));
 
         {
             let app_id = item.app_id.clone();
@@ -284,8 +289,16 @@ impl ItemButton {
             button,
             persistent: item.favorite,
             show_names: appearance.show_names,
+            show_count: appearance.show_count,
             menu_state,
         }
+    }
+
+    /// Updates the window-count badge shown over the icon.
+    /// The badge is only visible when the item groups more than one window.
+    pub fn set_count(&self, count: usize) {
+        self.button.count.set_label(&count.to_string());
+        self.button.count.set_visible(self.show_count && count > 1);
     }
 
     pub fn set_open(&self, open: bool) {
@@ -315,6 +328,7 @@ pub struct ImageTextButton {
     pub(crate) button: Button,
     pub(crate) label: Label,
     picture: Picture,
+    count: Label,
 }
 
 impl ImageTextButton {
@@ -332,15 +346,31 @@ impl ImageTextButton {
 
         container.append(&picture);
         container.append(&label);
-
-        button.set_child(Some(&container));
         container.set_halign(Align::Center);
         container.set_valign(Align::Center);
+
+        // Window-count badge, overlaid in the corner of the icon. Hidden by
+        // default and driven by `ItemButton::set_count`; `can_target(false)`
+        // keeps it from swallowing clicks meant for the button beneath it.
+        let count = Label::builder()
+            .halign(Align::End)
+            .valign(Align::Start)
+            .build();
+        count.add_css_class("count");
+        count.set_can_target(false);
+        count.set_visible(false);
+
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&container));
+        overlay.add_overlay(&count);
+
+        button.set_child(Some(&overlay));
 
         ImageTextButton {
             button,
             label,
             picture,
+            count,
         }
     }
 }

@@ -21,6 +21,7 @@ Optionally displays a launchable set of favourites.
 | `favorites`                 | `string[]`                                  | `[]`                    | List of app IDs (or classes) to always show at the start of the launcher.                                                                                 |
 | `show_names`                | `boolean`                                   | `false`                 | Whether to show app names on the button label. Names will still show on tooltips when set to false.                                                       |
 | `show_icons`                | `boolean`                                   | `true`                  | Whether to show app icons on the button.                                                                                                                  |
+| `show_count`                | `boolean`                                   | `true`                  | Whether to show a badge with the window count on items that group more than one window.                                                                   |
 | `icon_size`                 | `integer`                                   | `32`                    | Size to render icon at (image icons only).                                                                                                                |
 | `launch_command`            | `string`                                    | `gtk-launch {app_name}` | Command used to launch applications.                                                                                                                      |
 | `reversed`                  | `boolean`                                   | `false`                 | Whether to reverse the order of favorites/items                                                                                                           |
@@ -116,6 +117,7 @@ start:
 | `.launcher .item.open`               | App button (open app)     |
 | `.launcher .item.focused`            | App button (focused app)  |
 | `.launcher .item.urgent`             | App button (urgent app)   |
+| `.launcher .item .count`             | Window-count badge        |
 | `.launcher .pagination`              | Pagination controls box   |
 | `.launcher .pagination .btn-back`    | Pagination back button    |
 | `.launcher .pagination .btn-forward` | Pagination forward button |

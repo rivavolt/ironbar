@@ -46,6 +46,12 @@ pub struct LauncherModule {
     /// **Default**: `true`
     show_icons: bool,
 
+    /// Whether to show a badge with the window count
+    /// on items that group more than one window.
+    ///
+    /// **Default**: `true`
+    show_count: bool,
+
     /// Size in pixels to render icon at (image icons only).
     ///
     /// **Default**: `32`
@@ -120,6 +126,7 @@ impl Default for LauncherModule {
             favorites: None,
             show_names: false,
             show_icons: true,
+            show_count: true,
             icon_size: default::IconSize::Normal as i32,
             reversed: false,
             minimize_focused: true,
@@ -468,6 +475,7 @@ impl Module<gtk::Box> for LauncherModule {
             let appearance_options = AppearanceOptions {
                 show_names: self.show_names,
                 show_icons: self.show_icons,
+                show_count: self.show_count,
                 icon_size: self.icon_size,
                 truncate: self.truncate,
                 orientation: self.layout.orientation(info),
@@ -531,7 +539,12 @@ impl Module<gtk::Box> for LauncherModule {
                                 button.set_open(true);
                                 button.set_focused(win.open_state.is_focused());
 
-                                write_lock!(button.menu_state).num_windows += 1;
+                                let num_windows = {
+                                    let mut menu_state = write_lock!(button.menu_state);
+                                    menu_state.num_windows += 1;
+                                    menu_state.num_windows
+                                };
+                                button.set_count(num_windows);
                             }
                         }
                         LauncherUpdate::RemoveItem(app_id) => {
@@ -564,8 +577,12 @@ impl Module<gtk::Box> for LauncherModule {
                             if let Some(button) = buttons.borrow().get(&app_id) {
                                 button.set_focused(false);
 
-                                let mut menu_state = write_lock!(button.menu_state);
-                                menu_state.num_windows -= 1;
+                                let num_windows = {
+                                    let mut menu_state = write_lock!(button.menu_state);
+                                    menu_state.num_windows -= 1;
+                                    menu_state.num_windows
+                                };
+                                button.set_count(num_windows);
                             }
                         }
                         LauncherUpdate::Focus(app_id, focus) => {
