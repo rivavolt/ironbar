@@ -591,12 +591,10 @@ impl Module<gtk::Box> for WorkspacesModule {
                                     break;
                                 }
                             }
-                            if let Some((ws_id, classes)) = update_ws {
-                                if let Some(button) =
-                                    button_map.get_button_for_workspace_mut(ws_id)
-                                {
-                                    button.set_window_icons(&classes);
-                                }
+                            if let Some((ws_id, classes)) = update_ws
+                                && let Some(button) = button_map.get_button_for_workspace_mut(ws_id)
+                            {
+                                button.set_window_icons(&classes);
                             }
                         } else if let Some(windows) = window_state.get_mut(&workspace_id) {
                             windows.retain(|(wid, _)| *wid != window_id);
@@ -626,12 +624,10 @@ impl Module<gtk::Box> for WorkspacesModule {
                                 break;
                             }
                         }
-                        if let Some((ws_id, classes)) = old_update {
-                            if let Some(button) =
-                                button_map.get_button_for_workspace_mut(ws_id)
-                            {
-                                button.set_window_icons(&classes);
-                            }
+                        if let Some((ws_id, classes)) = old_update
+                            && let Some(button) = button_map.get_button_for_workspace_mut(ws_id)
+                        {
+                            button.set_window_icons(&classes);
                         }
 
                         // Add to new workspace
@@ -670,12 +666,10 @@ impl Module<gtk::Box> for WorkspacesModule {
                                     break;
                                 }
                             }
-                            if let Some((ws_id, classes)) = update_ws {
-                                if let Some(button) =
-                                    button_map.get_button_for_workspace_mut(ws_id)
-                                {
-                                    button.set_window_icons(&classes);
-                                }
+                            if let Some((ws_id, classes)) = update_ws
+                                && let Some(button) = button_map.get_button_for_workspace_mut(ws_id)
+                            {
+                                button.set_window_icons(&classes);
                             }
                         } else {
                             // Unpinned: add back to its workspace

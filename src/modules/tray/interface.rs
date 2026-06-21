@@ -395,10 +395,10 @@ impl TrayMenu {
             action.connect_change_state(move |action, state| {
                 if let Some(state) = state {
                     action.set_state(state);
-                    if let Some(target) = state.get::<String>() {
-                        if let Ok(id) = target.parse::<i32>() {
-                            activate(&tx, &address, &path, id);
-                        }
+                    if let Some(target) = state.get::<String>()
+                        && let Ok(id) = target.parse::<i32>()
+                    {
+                        activate(&tx, &address, &path, id);
                     }
                 }
             });
@@ -474,10 +474,11 @@ impl TrayMenu {
                                     let rg = if let Some(rg) = radio_group {
                                         if selected {
                                             let action_name = rg.strip_prefix("menu.").unwrap_or(&rg);
-                                            if let Some(action) = action_group.lookup_action(action_name) {
-                                                if let Some(sa) = action.downcast_ref::<SimpleAction>() {
-                                                    sa.set_state(&target.to_variant());
-                                                }
+                                            if let Some(action) =
+                                                action_group.lookup_action(action_name)
+                                                && let Some(sa) = action.downcast_ref::<SimpleAction>()
+                                            {
+                                                sa.set_state(&target.to_variant());
                                             }
                                         }
                                         rg
