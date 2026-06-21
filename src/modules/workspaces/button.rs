@@ -112,15 +112,41 @@ impl Button {
             icon_container.remove(&child);
         }
 
-        let scale = icon_container.scale_factor();
+        // Collapse repeated window classes into a single icon, keeping
+        // first-seen order, so a workspace with several windows of one app
+        // stays compact. Each collapsed group is badged with its count.
+        let mut groups: Vec<(&str, usize)> = Vec::new();
         for class in classes {
-            let paintable =
-                self.image_provider
-                    .lookup_icon(class, self.icon_size, scale);
+            match groups.iter_mut().find(|(c, _)| *c == class.as_str()) {
+                Some(group) => group.1 += 1,
+                None => groups.push((class.as_str(), 1)),
+            }
+        }
+
+        let scale = icon_container.scale_factor();
+        for (class, count) in groups {
+            let paintable = self.image_provider.lookup_icon(class, self.icon_size, scale);
             let image = gtk::Image::from_paintable(Some(&paintable));
             image.set_pixel_size(self.icon_size);
             image.add_css_class("window-icon");
-            icon_container.append(&image);
+
+            if count > 1 {
+                let overlay = gtk::Overlay::new();
+                overlay.set_child(Some(&image));
+
+                let count_label = gtk::Label::builder()
+                    .label(count.to_string())
+                    .halign(gtk::Align::End)
+                    .valign(gtk::Align::Start)
+                    .build();
+                count_label.add_css_class("count");
+                count_label.set_can_target(false);
+
+                overlay.add_overlay(&count_label);
+                icon_container.append(&overlay);
+            } else {
+                icon_container.append(&image);
+            }
         }
     }
 
