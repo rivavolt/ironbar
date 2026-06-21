@@ -83,31 +83,30 @@ impl Button {
         btn
     }
 
-    fn ensure_icon_container(&mut self) {
-        if self.icon_container.is_some() {
-            return;
-        }
+    fn ensure_icon_container(&mut self) -> &gtk::Box {
+        let button = &self.button;
+        let label = &self.label;
 
-        let container = gtk::Box::new(Orientation::Horizontal, 0);
-        container.add_css_class("button-contents");
+        self.icon_container.get_or_insert_with(|| {
+            let container = gtk::Box::new(Orientation::Horizontal, 0);
+            container.add_css_class("button-contents");
 
-        let icon_box = gtk::Box::new(Orientation::Horizontal, 2);
-        icon_box.add_css_class("window-icons");
+            let icon_box = gtk::Box::new(Orientation::Horizontal, 2);
+            icon_box.add_css_class("window-icons");
 
-        // Unparent label from button before re-parenting into container
-        self.button.set_child(None::<&gtk::Widget>);
+            // Unparent label from button before re-parenting into container
+            button.set_child(None::<&gtk::Widget>);
 
-        container.append(&self.label);
-        container.append(&icon_box);
+            container.append(label);
+            container.append(&icon_box);
 
-        self.button.set_child(Some(&container));
-        self.icon_container = Some(icon_box);
+            button.set_child(Some(&container));
+            icon_box
+        })
     }
 
     pub fn set_window_icons(&mut self, classes: &[String]) {
-        self.ensure_icon_container();
-
-        let icon_container = self.icon_container.as_ref().unwrap();
+        let icon_container = self.ensure_icon_container().clone();
 
         while let Some(child) = icon_container.first_child() {
             icon_container.remove(&child);
