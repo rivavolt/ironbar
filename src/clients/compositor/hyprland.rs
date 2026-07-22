@@ -8,7 +8,7 @@ use crate::{arc_mut, lock, spawn_blocking};
 use hyprland::Result;
 use hyprland::ctl::switch_xkb_layout;
 use hyprland::data::{Clients, Devices, Workspace as HWorkspace, Workspaces};
-use hyprland::dispatch::{Dispatch, DispatchType, WorkspaceIdentifierWithSpecial};
+use hyprland::dispatch::{Dispatch, DispatchType};
 use hyprland::event_listener::EventListener;
 use hyprland::prelude::*;
 use hyprland::shared::{Address, HyprDataVec, WorkspaceType};
@@ -624,9 +624,15 @@ impl Client {
 #[cfg(feature = "workspaces+hyprland")]
 impl super::WorkspaceClient for Client {
     fn focus(&self, id: i64) {
-        let identifier = WorkspaceIdentifierWithSpecial::Id(id as i32);
+        // Hyprland evaluates IPC `dispatch` payloads as Lua when running a Lua
+        // config, wrapping the argument as `return hl.dispatch(<arg>)`. A
+        // hyprlang-syntax dispatch like `workspace 1` is then a Lua syntax
+        // error, so emit the Lua-call form `hl.dsp.focus({ workspace = N })`
+        // instead. `DispatchType::Custom` sends it verbatim after the
+        // `dispatch ` verb that Hyprland strips before evaluation.
+        let lua = format!("hl.dsp.focus({{ workspace = {id} }})");
 
-        if let Err(e) = Dispatch::call(DispatchType::Workspace(identifier)) {
+        if let Err(e) = Dispatch::call(DispatchType::Custom(&lua, "")) {
             error!("Couldn't focus workspace '{id}': {e:#}");
         }
     }
