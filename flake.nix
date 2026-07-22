@@ -86,6 +86,12 @@
       default = ironbar;
     });
 
+    # Shadow nixpkgs' ironbar with this fork so a consumer flake wires it up as
+    # `inputs.ironbar.overlays.default` instead of hand-rolling the package alias.
+    overlays.default = final: _prev: {
+      ironbar = self.packages.${final.stdenv.hostPlatform.system}.default;
+    };
+
     homeManagerModules.default = import ./nix/module.nix self;
   };
 }
