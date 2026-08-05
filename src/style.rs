@@ -4,6 +4,7 @@ use gtk::ffi::GTK_STYLE_PROVIDER_PRIORITY_USER;
 use gtk::{CssProvider, gio};
 use notify::event::ModifyKind;
 use notify::{Event, EventKind, RecursiveMode, Result, Watcher, recommended_watcher};
+use std::cell::RefCell;
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -15,6 +16,25 @@ use tracing::{debug, error, info};
 pub enum CssSource {
     String(&'static str),
     File(PathBuf),
+}
+
+thread_local! {
+    static PROVIDER: RefCell<Option<CssProvider>> = const { RefCell::new(None) };
+}
+
+/// Re-reads the CSS source into the provider installed by `load_css`.
+///
+/// The file watcher only sees writes to the watched path itself, so when the stylesheet is a symlink (or the watcher otherwise misses a change) this is the way to force a fresh load from disk.
+pub fn reload_css(source: &CssSource) {
+    PROVIDER.with_borrow(|provider| {
+        if let Some(provider) = provider {
+            match source {
+                CssSource::String(str) => provider.load_from_string(str),
+                CssSource::File(path) => provider.load_from_path(path),
+            }
+            info!("Reloaded CSS");
+        }
+    });
 }
 
 /// Attempts to load CSS file at the given path
@@ -53,6 +73,8 @@ pub fn load_css(source: &CssSource) {
         &provider,
         GTK_STYLE_PROVIDER_PRIORITY_USER as u32 + 200,
     );
+
+    PROVIDER.set(Some(provider.clone()));
 
     // install file watcher
     if let Some(style_path) = path {

@@ -143,6 +143,7 @@ impl Ipc {
                 }
 
                 ironbar.reload_config();
+                crate::style::reload_css(&ironbar.css_source);
 
                 match crate::load_output_bars(ironbar, application) {
                     Ok(()) => {}
