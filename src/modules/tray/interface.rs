@@ -190,6 +190,27 @@ impl TrayMenu {
             widget.connect_pressed_with_double_click(MouseButton::Middle, on_single, on_double);
         }
 
+        // Wheel over the icon forwards SNI Scroll events (vertical, one unit per notch).
+        {
+            let tx = tx.clone();
+            let address = address.to_owned();
+            let controller = gtk::EventControllerScroll::new(
+                gtk::EventControllerScrollFlags::VERTICAL
+                    | gtk::EventControllerScrollFlags::DISCRETE,
+            );
+            controller.connect_scroll(move |_, _dx, dy| {
+                let delta = dy as i32;
+                if delta != 0 {
+                    tx.send_spawn(UiEvent::Scroll {
+                        address: address.clone(),
+                        delta,
+                    });
+                }
+                glib::Propagation::Stop
+            });
+            widget.add_controller(controller);
+        }
+
         widget.set_child(Some(&content));
         widget.add_css_class("item");
 

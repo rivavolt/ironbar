@@ -196,6 +196,7 @@ impl Default for TrayModule {
 pub enum UiEvent {
     Menu(bool),
     Activate(ActivateRequest),
+    Scroll { address: String, delta: i32 },
 }
 
 impl Module<gtk::Box> for TrayModule {
@@ -255,6 +256,9 @@ impl Module<gtk::Box> for TrayModule {
 
         // send tray commands
         spawn(async move {
+            // Lazily-opened session bus for SNI Scroll calls: the system-tray crate's
+            // client API has no scroll support, so the event is sent directly.
+            let mut scroll_conn: Option<zbus::Connection> = None;
             while let Some(cmd) = rx.recv().await {
                 match cmd {
                     UiEvent::Menu(open) => {
@@ -266,6 +270,30 @@ impl Module<gtk::Box> for TrayModule {
                             error!("{err:?}");
                         }
                         trace!("end activation");
+                    }
+                    UiEvent::Scroll { address, delta } => {
+                        if scroll_conn.is_none() {
+                            scroll_conn = zbus::Connection::session().await.ok();
+                        }
+                        if let Some(conn) = &scroll_conn {
+                            let (dest, path) = address.split_once('/').map_or_else(
+                                || (address.clone(), String::from("/StatusNotifierItem")),
+                                |(d, p)| (d.to_string(), format!("/{p}")),
+                            );
+                            debug!("scrolling {dest}{path} by {delta}");
+                            if let Err(err) = conn
+                                .call_method(
+                                    Some(dest.as_str()),
+                                    path.as_str(),
+                                    Some("org.kde.StatusNotifierItem"),
+                                    "Scroll",
+                                    &(delta, "vertical"),
+                                )
+                                .await
+                            {
+                                error!("{err:?}");
+                            }
+                        }
                     }
                 }
             }
