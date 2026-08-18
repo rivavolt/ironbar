@@ -570,7 +570,7 @@ impl TrayMenu {
                         }
                     }
 
-                    model.insert_item(sub.id, &item);
+                    model.append_item(&item);
                 }
 
                 MenuType::Separator => {
@@ -578,11 +578,11 @@ impl TrayMenu {
                     let label = sub.label.as_deref();
 
                     section_container = if let Some(section) = section_container {
-                        section.insert_item(sub.id, &MenuItem::new_section(label, &model));
+                        section.append_item(&MenuItem::new_section(label, &model));
                         Some(section)
                     } else {
                         let sc = Menu::new();
-                        sc.insert_item(sub.id, &MenuItem::new_section(label, &model));
+                        sc.append_item(&MenuItem::new_section(label, &model));
                         Some(sc)
                     };
 
@@ -592,7 +592,7 @@ impl TrayMenu {
         }
 
         if let Some(section) = section_container {
-            section.insert_item(0, &MenuItem::new_section(None, &model));
+            section.append_item(&MenuItem::new_section(None, &model));
             section
         } else {
             model
